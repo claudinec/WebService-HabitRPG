@@ -30,7 +30,8 @@ Usage:
 
     hrpg status                  : Show current HP/XP/GP
     hrpg tasks                   : Show current tasks
-    hrpg habit|daily|reward|todo : Show tasks of current type
+    hrpg habit|daily|todo        : Show tasks of current type
+    hrpg reward                  : Show rewards
     hrpg new                     : Create new task 'hrpg new' for help.
     hrpg [+-] task               : Increment/decrement a task or habit
     hrpg history task            : Show the history of a task
@@ -143,7 +144,8 @@ if (not @ARGV) {
 
     hrpg status                  : Show current HP/XP/GP
     hrpg tasks                   : Show current tasks
-    hrpg habit|daily|reward|todo : Show tasks of current type
+    hrpg habit|daily|todo        : Show tasks of current type
+    hrpg reward                  : Show rewards
     hrpg new                     : Create new task 'hrpg new' for help.
     hrpg [+-] task [comment]     : Increment/decrement a task or habit
     hrpg history task            : Show the history of a task
@@ -257,7 +259,7 @@ given ($cmd) {
         printf "GP: %d | SP: %2d | CP: %2d\n\n",$+{gp}, $+{sp}, $+{cp};
     }
 
-    when (/^(?<type>habit|todo|daily|reward)$/) {
+    when (/^(?<type>habit|daily|todo|reward)$/) {
         my $tasks = $hrpg->tasks($+{type});
 
         foreach my $task (@$tasks) {
@@ -385,7 +387,7 @@ given ($cmd) {
 
         # TODO: Support rewards (which have 'value')
 
-        my $usage_text = qq{Usage: $PROGNAME new [habit|todo|daily] +- "name" ["note"] [value]\n};
+        my $usage_text = qq{Usage: $PROGNAME new [habit|daily|todo] +- "name" ["note"] [value]\n};
 
         unless ($type and $direction and $text  ) { die $usage_text; }
         if     ($type !~ /^(?:habit|todo|daily)/) { die $usage_text; }
