@@ -6,7 +6,11 @@ use autodie;
 use Moo;
 use WWW::Mechanize;
 use Method::Signatures 20121201;
+use WebService::HabitRPG::Task;
 use JSON::Any;
+use Data::Dumper;
+
+our $DEBUG = $ENV{HRPG_DEBUG} || 0;
 
 # ABSTRACT: Perl interface to the HabitRPG API
 
@@ -85,6 +89,8 @@ has '_last_json' => (is => 'rw'); # For debugging
 
 sub BUILD {
     my ($self, $args) = @_;
+    
+    my $keep_alive = $args->{keep_alive} // 1;
 
     # Set a default agent if we don't already have one.
 
@@ -92,6 +98,7 @@ sub BUILD {
         $self->agent(
             WWW::Mechanize->new(
                 agent => "Perl/$], WebService::HabitRPG/" . $self->VERSION,
+                keep_alive => $keep_alive,
             )
         );
     }
@@ -124,20 +131,8 @@ tasks (habits, dailies, todos and rewards) are returned. With
 an argument, only tasks of the given type are returned. The
 argument must be one of C<habit>, C<daily>, C<todo> or C<reward>.
 
-The data returned for each task is defined by the HabitRPG API, but
-at the time of writing is:
-
-    {
-        text    => 'floss', # Text shown in web interface. Task name.
-        type    => 'habit', # One of: habit, todo, daily, reward
-        id      => '...',   # Internal task ID. Extensively used by API.
-        value   => 0,       # Either cost in GP, or how well one is doing
-        notes   => '',      # Extended, human-readable note field
-        repeat  => {...},   # Daily tasks only. 
-        up      => 1,       # Can this task be incremented?
-        down    => 0,       # Can this task be decremented?
-        history => [...],   # History data for this task.
-    }
+See L<WebService::HabitRPG::Task> for a complete description of
+what task objects look like.
 
 Not all tasks will have all fields.  Using the L<hrpg> command-line
 tool with C<hrpg dump tasks> is a convenient way to see the
@@ -147,9 +142,9 @@ data structures returned by this method.
 
 method tasks($type where qr{^(?: habit | daily | todo | reward | )$}x = "") {
     if ($type) {
-        return $self->_get_request( "/user/tasks?type=$type" ); 
+        return $self->_get_tasks( "/user/tasks?type=$type" ); 
     }
-    return $self->_get_request( "/user/tasks" ); 
+    return $self->_get_tasks( "/user/tasks" ); 
 }
 
 =method get_task
@@ -162,7 +157,7 @@ at L</tasks> above.
 =cut
 
 method get_task($task_id) {
-    return $self->_get_request("/user/task/$task_id");
+    return $self->_get_tasks("/user/task/$task_id");
 }
 
 =method new_task
@@ -339,7 +334,7 @@ tasks.  For example:
     
     # Increment task if found
     if (@tasks == 1) {
-        $hrpg->up($tasks[0]{id});
+        $hrpg->up($tasks[0]->id);
     }
     else {
         say "Too few or too many tasks found.";
@@ -357,17 +352,17 @@ method search_tasks($search_term, :$all = 0) {
 
     foreach my $task (@$tasks) {
 
-        next if $task->{type} eq 'reward';
-        if ($task->{completed} and not $all) { next; }
+        next if $task->type eq 'reward';
+        if ($task->completed and not $all) { next; }
 
         # If our search term exactly matches a task ID, then use
         # that.
 
-        if ($task->{id} eq $search_term) {
+        if ($task->id eq $search_term) {
             return $task;
         }
 
-        if ($task->{text} =~ /\Q$search_term\E/i) {
+        if ($task->text =~ /\Q$search_term\E/i) {
             push(@matches, $task);
         }
     }
@@ -375,6 +370,23 @@ method search_tasks($search_term, :$all = 0) {
 }
 
 #### Internal use only code beyond this point ####
+
+method _get_tasks($url) {
+    my $results = $self->_get_request($url);
+
+    my @tasks;
+
+    # Somehow we can get back completely undefined results,
+    # hence the grep to only look at defined ones.
+
+    foreach my $raw (grep { defined } @$results) {
+        push @tasks, WebService::HabitRPG::Task->new(
+            $raw,
+        );
+    }
+
+    return \@tasks;
+}
 
 method _get_request($url) {
     my $req = $self->_build_request('GET', $url);
@@ -390,6 +402,8 @@ method _request($req) {
 
 method _build_request($type, $url) {
 
+    warn "Making $type request to $url" if $DEBUG;
+
     my $req = HTTP::Request->new( $type, $self->api_base . $url );
     $req->header( 'Content-Type'    => 'application/json');
     $req->header( 'x-api-user'      => $self->user_id    );
@@ -401,8 +415,17 @@ method _build_request($type, $url) {
 my $json = JSON::Any->new;
 
 method _decode_json($string) {
+
+    warn "Decoding JSON: $string" if $DEBUG;
+
     $self->_last_json($string);         # For debugging
-    return $json->decode( $string );
+    my $result = $json->decode( $string );
+
+    if ($DEBUG) {
+        warn "JSON decoded to: ", Dumper($result), "\n";
+    }
+
+    return $result;
 }
 
 method _encode_json($string) {
